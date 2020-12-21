@@ -3,6 +3,7 @@ import time
 import brainflow
 import numpy as np
 import queue
+import time
 
 import pandas as pd
 import matplotlib
@@ -26,10 +27,12 @@ class Neural_Feedback:
         brightness = 0
         brightness_delta = 5
         old_signal = self.positive_signal
+        signal_timestamp = time.time()
         while True:
             grabbed, frame=video.read()
             signal = self.positive_signal
-            if old_signal != signal:
+            if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
+                signal_timestamp=time.time()
                 if signal:
                     player.set_volume(1.0)
                     brightness_delta = 5
@@ -68,6 +71,7 @@ class Neural_Feedback:
         self.sampling_rate = BoardShim.get_sampling_rate (self.board_id)
         self.board = BoardShim (self.board_id, params)
         self.positive_signal = True
+        self.last_signal_delta = 0
         self.signals = []
 
     def dispose(self):
@@ -88,7 +92,7 @@ class Neural_Feedback:
         try:
             nfft = DataFilter.get_nearest_power_of_two (self.sampling_rate)
             eeg_channels = BoardShim.get_eeg_channels (self.board_id)
-            time.sleep(10)
+            time.sleep(3)
             signals = []
             player_thread = threading.Thread(target=self.Player_Thread)
             player_thread.start()
@@ -98,7 +102,10 @@ class Neural_Feedback:
                     signals.pop(0)
                 avg_signal = sum(signals) / len(signals)
                 self.positive_signal = avg_signal < signals[-1]
-                print("up" if avg_signal < signals[-1] else "down") 
+                self.last_signal_delta = abs(avg_signal - signals[-1])
+                if signals[-1] > 9: # min positive signals
+                    self.positive_signal = True
+                print(f'up {self.last_signal_delta}' if avg_signal < signals[-1] else f'down {self.last_signal_delta}') 
             player_thread.join()
         except Exception as e: 
             print(e)
