@@ -21,55 +21,90 @@ from ffpyplayer.player import MediaPlayer
 
 class Neural_Feedback:
 
-    def Player_Thread(self):
+    def cv2_video_read_thread(self):
+        cv2.namedWindow(self.windowName, cv2.WINDOW_GUI_EXPANDED)
         video=cv2.VideoCapture(self.video_path)
-        player = MediaPlayer(self.video_path)
-        brightness = 0
-        brightness_delta = 5
+        signal_timestamp = time.time()
+        old_signal = self.positive_signal
+        try:
+            brightness = 0
+            brightness_delta = 5
+            while self.player_is_playing:
+                grabbed, frame=video.read()
+                video_msec = video.get(cv2.CAP_PROP_POS_MSEC)
+                audio_current_time = time.time() - self.audio_start_time_sec
+                if  audio_current_time*1000 > video_msec + 200:
+                    frame_pos = video.get(cv2.CAP_PROP_POS_FRAMES)
+                    video.set(cv2.CAP_PROP_POS_FRAMES, frame_pos + 10)
+                    #print(f'audio_current_time_ms {audio_current_time}  video_time {video_msec/1000} frame {frame_pos}')
+                elif audio_current_time*1000 < video_msec - 100:
+                    t = (video_msec - audio_current_time*1000)/1500
+                    time.sleep(t)
+                    #print(f'video is too fast {t}')
+                if not grabbed:
+                    break
+                if cv2.waitKey(28) & 0xFF == ord("q"):
+                    self.player_is_playing = False
+                    break
+                signal = self.positive_signal
+                if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
+                    signal_timestamp=time.time()
+                    if signal:
+                        brightness_delta = 5
+                    else:
+                        brightness_delta = -5
+                    old_signal = signal
+                brightness += brightness_delta
+                if brightness > 254:
+                    brightness = 255
+                if brightness < 50:
+                    brightness = 50
+
+                cv2.normalize(frame, frame, 0, brightness, cv2.NORM_MINMAX) # 0 - 255
+                cv2.imshow(self.windowName, frame)
+              
+        except Exception as e: 
+            print(e)
+        finally:
+            self.player_is_playing = False
+            video.release()
+            cv2.destroyAllWindows()
+
+    def audio_thread(self):
+        player = MediaPlayer(self.video_path, ff_opts = {'vn':True})
         old_signal = self.positive_signal
         signal_timestamp = time.time()
-        while True:
-            grabbed, frame=video.read()
-            signal = self.positive_signal
-            if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
-                signal_timestamp=time.time()
-                if signal:
-                    player.set_volume(1.0)
-                    brightness_delta = 5
-                else:
-                    player.set_volume(0.2)
-                    brightness_delta = -5
-                old_signal = signal
-            brightness += brightness_delta
-            if brightness > 254:
-                brightness = 255
-            if brightness < 50:
-                brightness = 50
-            cv2.normalize(frame, frame, 0, brightness, cv2.NORM_MINMAX) # 0 - 255
-            #player.set_volume(1.0) # 0.0 - 1.0
-            audio_frame, val = player.get_frame()
-            if not grabbed:
-                print("End of video")
-                break
-            if cv2.waitKey(28) & 0xFF == ord("q"):
-                break
-            cv2.imshow("Video", frame)
-            if val != 'eof' and audio_frame is not None:
-                #audio
-                img, t = audio_frame
-        video.release()
-        cv2.destroyAllWindows()
-           
+        try:
+            player.set_volume(1.0)
+            self.audio_start_time_sec = time.time()
+            while self.player_is_playing:
+                signal = self.positive_signal
+                if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
+                    signal_timestamp=time.time()
+                    if signal:
+                        player.set_volume(1.0)
+                    else:
+                        player.set_volume(0.4)
+                    old_signal = signal
+                time.sleep(0.1)
+        except Exception as e: 
+            print(e)
+        finally:
+            self.player_is_playing = False
+            player.close_player()
 
    
     def __init__(self, video_path):
+        self.windowName = "Neurofeedback"
         self.video_path = video_path
+        self.audio_start_time_sec = time.time()
         BoardShim.enable_dev_board_logger ()
         params = BrainFlowInputParams ()
         params.serial_port = "/dev/ttyUSB0"
         self.board_id = BoardIds.CYTON_DAISY_BOARD.value
         self.sampling_rate = BoardShim.get_sampling_rate (self.board_id)
         self.board = BoardShim (self.board_id, params)
+        self.player_is_playing = False
         self.positive_signal = True
         self.last_signal_delta = 0
         self.signals = []
@@ -94,9 +129,12 @@ class Neural_Feedback:
             eeg_channels = BoardShim.get_eeg_channels (self.board_id)
             time.sleep(3)
             signals = []
-            player_thread = threading.Thread(target=self.Player_Thread)
-            player_thread.start()
-            for z in range(90):
+            cv2_thread = threading.Thread(target=self.cv2_video_read_thread)
+            audio_thread = threading.Thread(target=self.audio_thread)
+            cv2_thread.start()
+            audio_thread.start()
+            self.player_is_playing = True
+            while self.player_is_playing:
                 signals.append(self.on_next(eeg_channels, nfft))
                 if len(signals) > 3:
                     signals.pop(0)
@@ -105,8 +143,9 @@ class Neural_Feedback:
                 self.last_signal_delta = abs(avg_signal - signals[-1])
                 if signals[-1] > 9: # min positive signals
                     self.positive_signal = True
-                print(f'up {self.last_signal_delta}' if avg_signal < signals[-1] else f'down {self.last_signal_delta}') 
-            player_thread.join()
+                print(f'up {self.last_signal_delta}' if avg_signal < signals[-1] else f'down {self.last_signal_delta}')  # enable it later
+            audio_thread.join()
+            cv2_thread.join()
         except Exception as e: 
             print(e)
         return
@@ -191,7 +230,7 @@ def get_protocol1():
     return result
 
 if __name__ == "__main__":
-    nf = Neural_Feedback("/home/romans/Downloads/TradeOptionsImplyVolatility")
+    nf = Neural_Feedback("/home/romans/Downloads/THE SECRET To Negotiating In Business & Life TO ACHIEVE SUCCESS Chris Voss & Lewis Howes.mp4")
     nf.config_protocol(get_protocol1())
     nf.main()
     nf.dispose()
