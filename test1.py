@@ -50,7 +50,7 @@ class Neural_Feedback:
                 if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
                     signal_timestamp=time.time()
                     if signal:
-                        brightness_delta = 5
+                        brightness_delta = 10
                     else:
                         brightness_delta = -5
                     old_signal = signal
@@ -84,7 +84,7 @@ class Neural_Feedback:
                     if signal:
                         player.set_volume(1.0)
                     else:
-                        player.set_volume(0.4)
+                        player.set_volume(0.5)
                     old_signal = signal
                 time.sleep(0.1)
         except Exception as e: 
@@ -221,6 +221,7 @@ class Band_Context:
 # left hemisphere activation (1 9 13 15)
 # inhibith theta 4-7 and high beta 18-22
 # enchance alpha (8-10) and gamma 40 - 55  65-100?
+# TODO reward if band higher thrashold longer than 200ms ?
 def get_protocol1():
     result = []
     result.append(Channel_Context(1, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
