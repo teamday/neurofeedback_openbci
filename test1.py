@@ -136,6 +136,7 @@ class Neural_Feedback:
             self.player_is_playing = True
             positive_signals_list = []
             negative_signals_list = []
+            data_log_file = open(f'log-{time.time()}.csv', 'a')
             while self.player_is_playing:
                 bands_signals = self.on_next(eeg_channels, nfft)
                 positive_signals_sum = 0.0
@@ -162,8 +163,12 @@ class Neural_Feedback:
                 print_bands = []
                 for proto in self.protocol:
                     print_bands.append(f'{proto.channel_inx},'+ ",".join([str(b.band_current_power) for b in proto.bands]))
+                
+                log_line = f'\n{time.asctime(time.gmtime(time.time()))},{positive_signals_sum},{negative_signals_sum},{abs(positive_signals_sum - avg_positive)},{abs(negative_signals_sum - avg_negative)},{self.positive_signal},{self.is_last_signal_delta_high},{",".join(print_bands)}'
 
-                print(f'{time.asctime(time.gmtime(time.time()))},{positive_signals_sum},{negative_signals_sum},{abs(positive_signals_sum - avg_positive)},{abs(negative_signals_sum - avg_negative)},{self.positive_signal},{self.is_last_signal_delta_high},{",".join(print_bands)}')
+                data_log_file.write(log_line)
+                print(f'{positive_signals_sum},{negative_signals_sum},{self.positive_signal},{self.is_last_signal_delta_high}')
+            data_log_file.close()
             audio_thread.join()
             cv2_thread.join()
         except Exception as e: 
