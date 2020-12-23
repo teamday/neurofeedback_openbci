@@ -138,6 +138,7 @@ class Neural_Feedback:
             negative_signals_list = []
             data_log_file = open(f'log-{time.time()}.csv', 'a')
             while self.player_is_playing:
+                time.sleep (.3)
                 bands_signals = self.on_next(eeg_channels, nfft)
                 positive_signals_sum = 0.0
                 negative_signals_sum = 0.0
@@ -148,7 +149,7 @@ class Neural_Feedback:
                         negative_signals_sum += bands_signals[i]
                 positive_signals_list.append(positive_signals_sum)
                 negative_signals_list.append(negative_signals_sum)
-                if len(positive_signals_list)>4:
+                if len(positive_signals_list)>15:
                     positive_signals_list.pop(0)
                     negative_signals_list.pop(0)
                 avg_positive = sum(positive_signals_list) / len(positive_signals_list)
@@ -177,7 +178,6 @@ class Neural_Feedback:
         return
 
     def on_next(self, eeg_channels, nfft):
-        time.sleep (.3)
         data = self.board.get_current_board_data(max(self.sampling_rate, nfft) + 1) #get_board_data () we are taking ~1 sec data ~3 times a sec
         bands_sum = collections.defaultdict(float)
         for channel in self.protocol:
@@ -282,7 +282,7 @@ def get_protocol1():
     return result
 
 if __name__ == "__main__":
-    nf = Neural_Feedback("/home/romans/Downloads/THE SECRET To Negotiating In Business & Life TO ACHIEVE SUCCESS Chris Voss & Lewis Howes.mp4")
+    nf = Neural_Feedback('/home/romans/Downloads/y2mate.com - Convolution as spectral multiplication_1080p.mp4')
     nf.config_protocol(get_protocol1())
     nf.main()
     nf.dispose()
