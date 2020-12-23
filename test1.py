@@ -4,6 +4,7 @@ import brainflow
 import numpy as np
 import queue
 import time
+import collections
 
 import pandas as pd
 import matplotlib
@@ -21,7 +22,7 @@ from ffpyplayer.player import MediaPlayer
 
 class Neural_Feedback:
 
-    def cv2_video_read_thread(self):
+    def cv2_video_thread(self):
         cv2.namedWindow(self.windowName, cv2.WINDOW_GUI_EXPANDED)
         video=cv2.VideoCapture(self.video_path)
         signal_timestamp = time.time()
@@ -47,7 +48,7 @@ class Neural_Feedback:
                     self.player_is_playing = False
                     break
                 signal = self.positive_signal
-                if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
+                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 3):
                     signal_timestamp=time.time()
                     if signal:
                         brightness_delta = 10
@@ -79,7 +80,7 @@ class Neural_Feedback:
             self.audio_start_time_sec = time.time()
             while self.player_is_playing:
                 signal = self.positive_signal
-                if old_signal != signal and (self.last_signal_delta > 2.0 or time.time() - signal_timestamp > 3):
+                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 3):
                     signal_timestamp=time.time()
                     if signal:
                         player.set_volume(1.0)
@@ -128,39 +129,61 @@ class Neural_Feedback:
             nfft = DataFilter.get_nearest_power_of_two (self.sampling_rate)
             eeg_channels = BoardShim.get_eeg_channels (self.board_id)
             time.sleep(3)
-            signals = []
-            cv2_thread = threading.Thread(target=self.cv2_video_read_thread)
+            cv2_thread = threading.Thread(target=self.cv2_video_thread)
             audio_thread = threading.Thread(target=self.audio_thread)
             cv2_thread.start()
             audio_thread.start()
             self.player_is_playing = True
+            positive_signals_list = []
+            negative_signals_list = []
             while self.player_is_playing:
-                signals.append(self.on_next(eeg_channels, nfft))
-                if len(signals) > 3:
-                    signals.pop(0)
-                avg_signal = sum(signals) / len(signals)
-                self.positive_signal = avg_signal < signals[-1]
-                self.last_signal_delta = abs(avg_signal - signals[-1])
-                if signals[-1] > 9: # min positive signals
-                    self.positive_signal = True
-                print(f'up {self.last_signal_delta}' if avg_signal < signals[-1] else f'down {self.last_signal_delta}')  # enable it later
+                bands_signals = self.on_next(eeg_channels, nfft)
+                positive_signals_sum = 0.0
+                negative_signals_sum = 0.0
+                for i in bands_signals.keys():
+                    if bands_signals[i] > 0:
+                        positive_signals_sum += bands_signals[i]
+                    else:
+                        negative_signals_sum += bands_signals[i]
+                positive_signals_list.append(positive_signals_sum)
+                negative_signals_list.append(negative_signals_sum)
+                if len(positive_signals_list)>4:
+                    positive_signals_list.pop(0)
+                    negative_signals_list.pop(0)
+                avg_positive = sum(positive_signals_list) / len(positive_signals_list)
+                avg_negative = sum(negative_signals_list) / len(negative_signals_list)
+
+                self.positive_signal = avg_positive < positive_signals_sum * 0.9 and abs(negative_signals_sum) < positive_signals_sum
+
+                self.is_last_signal_delta_high = False
+                if self.positive_signal and (abs(positive_signals_sum - avg_positive) > avg_positive*0.3 or abs(negative_signals_sum - avg_negative) > abs(avg_negative)*0.3 or positive_signals_sum/(abs(negative_signals_sum)+0.0001) > 3):
+                    self.is_last_signal_delta_high = True
+                
+                print_bands = []
+                for proto in self.protocol:
+                    print_bands.append(f'{proto.channel_inx},'+ ",".join([str(b.band_current_power) for b in proto.bands]))
+
+                print(f'{time.asctime(time.gmtime(time.time()))},{positive_signals_sum},{negative_signals_sum},{abs(positive_signals_sum - avg_positive)},{abs(negative_signals_sum - avg_negative)},{self.positive_signal},{self.is_last_signal_delta_high},{",".join(print_bands)}')
             audio_thread.join()
             cv2_thread.join()
         except Exception as e: 
             print(e)
+            self.player_is_playing = False
         return
 
     def on_next(self, eeg_channels, nfft):
         time.sleep (.3)
         data = self.board.get_current_board_data(max(self.sampling_rate, nfft) + 1) #get_board_data () we are taking ~1 sec data ~3 times a sec
+        bands_sum = collections.defaultdict(float)
         for channel in self.protocol:
             channel_data = data[eeg_channels[channel.channel_inx]]
             DataFilter.detrend (channel_data, DetrendOperations.LINEAR.value)
             psd = DataFilter.get_psd_welch (channel_data, nfft, nfft // 2, self.sampling_rate, WindowFunctions.BLACKMAN_HARRIS.value)
             for band in channel.bands:
-                band.add_band_power_value(psd, 30)
-            #print(f'channel: {channel.channel_inx} positive_signals: {channel.get_positive_signals_count()} avg_power: {channel.get_avg_bands()}')
-        return sum([i.get_positive_signals_count() for i in self.protocol])
+                band.add_band_power_value(psd)
+                bands_sum[band.name] += band.get_signal()
+            #print(f'channel: {channel.channel_inx} positive_signals: {channel.get_positive_signals_count()} signals:{channel.get_bands_signals()}') # powers: {channel.get_bands_powers()}
+        return bands_sum
 
 class Channel_Context:
     def __init__(self, channel_inx, bands):
@@ -174,18 +197,27 @@ class Channel_Context:
                 result += 1
         return result
 
-    def get_avg_bands(self):
+    def get_bands_powers(self):
         return [i.get_avg_power() for i in self.bands]
 
+    def get_bands_signals(self):
+        return [i.get_signal() for i in self.bands]
+
+"""
+Band config and avg power buffer
+
+"""
 class Band_Context:
-    def __init__(self, band_range_min, band_range_max, is_inhibit = False, signal_avg_diff_threshold = 0.05, signal_diviation_cut = 3):
+    def __init__(self, band_range_min, band_range_max, is_inhibit = False, signal_avg_diff_threshold = 0.05, signal_diviation_cut = 3, band_avg_buffer_size = 30):
         self.band_range_max = band_range_max
         self.band_range_min = band_range_min
+        self.band_avg_buffer_size = band_avg_buffer_size
         self.power_values = []
         self.band_current_power = 0.0
         self.is_inhibit = is_inhibit
         self.signal_avg_diff_threshold = signal_avg_diff_threshold
         self.signal_diviation_cut = signal_diviation_cut
+        self.name = f'{band_range_min}-{band_range_max}'
     
     def is_signal_positive(self):
         avg_power = self.get_avg_power()
@@ -195,16 +227,29 @@ class Band_Context:
             return True
         return False
 
-    def add_band_power_value(self, psd, max_size):
+    def _add_band_power_value(self, value):
+        if self.band_current_power < 0.01 or self.band_current_power*self.signal_diviation_cut > value:
+            self.band_current_power = value
+            self.power_values.append(value)
+            if(len(self.power_values) > self.band_avg_buffer_size):
+                self.power_values.pop(0)
+
+    def add_band_power_value(self, psd):
         value = DataFilter.get_band_power(psd, self.band_range_min, self.band_range_max)
-        self.band_current_power = value
-        self.power_values.append(value)
-        if(len(self.power_values) > max_size):
-            self.power_values.pop(0)
+        self._add_band_power_value(value)
 
     def get_avg_power(self):
         if len(self.power_values) > 0:
             return sum(self.power_values)/len(self.power_values)
+        return 0.0
+
+    def get_signal(self):
+        avg_power = self.get_avg_power()
+        if avg_power > 0:
+            if self.is_inhibit:
+                return (avg_power - self.band_current_power) / avg_power
+            else:
+                return (self.band_current_power - avg_power) / avg_power
         return 0.0
 
 # Mapping
@@ -222,6 +267,7 @@ class Band_Context:
 # inhibith theta 4-7 and high beta 18-22
 # enchance alpha (8-10) and gamma 40 - 55  65-100?
 # TODO reward if band higher thrashold longer than 200ms ?
+# current constraint band array should be same because count of positive/negative signals based on bands aggregation from channels
 def get_protocol1():
     result = []
     result.append(Channel_Context(1, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
