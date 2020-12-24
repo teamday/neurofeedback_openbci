@@ -48,7 +48,7 @@ class Neural_Feedback:
                     self.player_is_playing = False
                     break
                 signal = self.positive_signal
-                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 3):
+                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
                     signal_timestamp=time.time()
                     if signal:
                         brightness_delta = 10
@@ -80,12 +80,12 @@ class Neural_Feedback:
             self.audio_start_time_sec = time.time()
             while self.player_is_playing:
                 signal = self.positive_signal
-                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 3):
+                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
                     signal_timestamp=time.time()
                     if signal:
                         player.set_volume(1.0)
                     else:
-                        player.set_volume(0.5)
+                        player.set_volume(0.4)
                     old_signal = signal
                 time.sleep(0.1)
         except Exception as e: 
@@ -136,7 +136,7 @@ class Neural_Feedback:
             self.player_is_playing = True
             positive_signals_list = []
             negative_signals_list = []
-            data_log_file = open(f'log-{time.time()}.csv', 'a')
+            data_log_file = open(f'log-ie-{time.time()}.csv', 'a')
             while self.player_is_playing:
                 time.sleep (.3)
                 bands_signals = self.on_next(eeg_channels, nfft)
@@ -192,7 +192,7 @@ class Neural_Feedback:
 
 class Channel_Context:
     def __init__(self, channel_inx, bands):
-        self.channel_inx = channel_inx
+        self.channel_inx = channel_inx - 1
         self.bands = bands
 
     def get_positive_signals_count(self):
@@ -213,7 +213,7 @@ Band config and avg power buffer
 
 """
 class Band_Context:
-    def __init__(self, band_range_min, band_range_max, is_inhibit = False, signal_avg_diff_threshold = 0.05, signal_diviation_cut = 3, band_avg_buffer_size = 30):
+    def __init__(self, band_range_min, band_range_max, is_inhibit = False, signal_avg_diff_threshold = 0.05, signal_diviation_cut = 25, band_avg_buffer_size = 30):
         self.band_range_max = band_range_max
         self.band_range_min = band_range_min
         self.band_avg_buffer_size = band_avg_buffer_size
@@ -238,6 +238,8 @@ class Band_Context:
             self.power_values.append(value)
             if(len(self.power_values) > self.band_avg_buffer_size):
                 self.power_values.pop(0)
+        else:
+            print(f'{self.band_range_min}-{self.band_range_max} skip {value} max {self.band_current_power*self.signal_diviation_cut}')
 
     def add_band_power_value(self, psd):
         value = DataFilter.get_band_power(psd, self.band_range_min, self.band_range_max)
@@ -271,7 +273,6 @@ class Band_Context:
 # left hemisphere activation (1 9 13 15)
 # inhibith theta 4-7 and high beta 18-22
 # enchance alpha (8-10) and gamma 40 - 55  65-100?
-# TODO reward if band higher thrashold longer than 200ms ?
 # current constraint band array should be same because count of positive/negative signals based on bands aggregation from channels
 def get_protocol1():
     result = []
@@ -281,8 +282,22 @@ def get_protocol1():
     result.append(Channel_Context(15, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
     return result
 
+# test 2
+# right hemi ()
+# P4 - 16 T4 - 14 T6 - 6 C4 - 4 O2 - 8
+# enchance (4 - 8, 12 - 18, 30 - 50) inhibit (17 - 30)
+# 
+def get_protocol2():
+    result = []
+    result.append(Channel_Context(4, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
+    result.append(Channel_Context(6, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
+    result.append(Channel_Context(8, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
+    result.append(Channel_Context(14, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
+    result.append(Channel_Context(16, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
+    return result
+
 if __name__ == "__main__":
-    nf = Neural_Feedback('/home/romans/Downloads/y2mate.com - Convolution as spectral multiplication_1080p.mp4')
-    nf.config_protocol(get_protocol1())
+    nf = Neural_Feedback('/home/romans/Downloads/How to Redesign the Subconscious Mind from Limitation to Freedom with Peter Crone.mp4')
+    nf.config_protocol(get_protocol2())
     nf.main()
     nf.dispose()
