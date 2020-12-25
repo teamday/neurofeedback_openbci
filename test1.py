@@ -134,11 +134,11 @@ class Neural_Feedback:
             cv2_thread.start()
             audio_thread.start()
             self.player_is_playing = True
-            positive_signals_list = []
-            negative_signals_list = []
+            signal_freq_coeff = .3 # auto adjustable coefficient?
+            high_signal_freq_coeff = .15
             data_log_file = open(f'log-{time.time()}.csv', 'a')
             while self.player_is_playing:
-                time.sleep (.3)
+                time.sleep (.1)
                 bands_signals = self.on_next(eeg_channels, nfft)
                 positive_signals_sum = 0.0
                 negative_signals_sum = 0.0
@@ -147,30 +147,21 @@ class Neural_Feedback:
                         positive_signals_sum += bands_signals[i]
                     else:
                         negative_signals_sum += bands_signals[i]
-                positive_signals_list.append(positive_signals_sum)
-                negative_signals_list.append(negative_signals_sum)
-                if len(positive_signals_list)>15:
-                    positive_signals_list.pop(0)
-                    negative_signals_list.pop(0)
-                avg_positive = sum(positive_signals_list) / len(positive_signals_list)
-                avg_negative = sum(negative_signals_list) / len(negative_signals_list)
 
-                #self.positive_signal = avg_positive < positive_signals_sum * 1.1 and abs(negative_signals_sum) < positive_signals_sum
-                self.positive_signal = abs(negative_signals_sum) < positive_signals_sum
+                self.positive_signal = abs(negative_signals_sum) < positive_signals_sum * signal_freq_coeff 
 
                 self.is_last_signal_delta_high = False
-                #if self.positive_signal and (abs(positive_signals_sum - avg_positive) > avg_positive*0.3 or abs(negative_signals_sum - avg_negative) > abs(avg_negative)*0.3 or positive_signals_sum/(abs(negative_signals_sum)+0.0001) > 3):
-                if self.positive_signal and positive_signals_sum + negative_signals_sum > positive_signals_sum * .5:
+                if self.positive_signal and positive_signals_sum*high_signal_freq_coeff > abs(negative_signals_sum):
                     self.is_last_signal_delta_high = True
                 
                 print_bands = []
                 for proto in self.protocol:
-                    print_bands.append(f'{proto.channel_inx},'+ ",".join([str(b.band_current_power) for b in proto.bands]))
+                    print_bands.append(f'{eeg_channels[proto.channel_inx]},'+ ",".join([str(b.band_current_power) for b in proto.bands]))
                 
-                log_line = f'\n{time.asctime(time.gmtime(time.time()))},{positive_signals_sum},{negative_signals_sum},{abs(positive_signals_sum - avg_positive)},{abs(negative_signals_sum - avg_negative)},{self.positive_signal},{self.is_last_signal_delta_high},{",".join(print_bands)}'
+                log_line = f'\n{time.asctime(time.gmtime(time.time()))},{positive_signals_sum},{negative_signals_sum},{self.positive_signal},{self.is_last_signal_delta_high},{",".join(print_bands)}'
 
                 data_log_file.write(log_line)
-                print(f'{positive_signals_sum},{negative_signals_sum},{self.positive_signal},{self.is_last_signal_delta_high}')
+                
             data_log_file.close()
             audio_thread.join()
             cv2_thread.join()
@@ -180,7 +171,7 @@ class Neural_Feedback:
         return
 
     def on_next(self, eeg_channels, nfft):
-        data = self.board.get_current_board_data(max(self.sampling_rate, nfft) + 1) #get_board_data () we are taking ~1 sec data ~3 times a sec
+        data = self.board.get_current_board_data(max(self.sampling_rate, nfft) + 1) #get_board_data () we are taking ~1 sec data ~10 times a sec
         bands_sum = collections.defaultdict(float)
         for channel in self.protocol:
             channel_data = data[eeg_channels[channel.channel_inx]]
@@ -189,7 +180,6 @@ class Neural_Feedback:
             for band in channel.bands:
                 band.add_band_power_value(psd)
                 bands_sum[band.name] += band.get_signal()
-            #print(f'channel: {channel.channel_inx} positive_signals: {channel.get_positive_signals_count()} signals:{channel.get_bands_signals()}') # powers: {channel.get_bands_powers()}
         return bands_sum
 
 class Channel_Context:
@@ -197,20 +187,14 @@ class Channel_Context:
         self.channel_inx = channel_inx - 1
         self.bands = bands
 
-    def get_bands_powers(self):
-        return [i.get_avg_power() for i in self.bands]
-
-    def get_bands_signals(self):
-        return [i.get_signal() for i in self.bands]
-
 """
 Band config and avg power buffer
 """
 class Band_Context:
-    def __init__(self, band_range_min, band_range_max, is_inhibit = False, signal_diviation_cut = 25, band_avg_buffer_size = 30):
+    def __init__(self, band_range_min, band_range_max, is_inhibit = False, signal_diviation_cut = 25, band_buffer_size = 300): 
         self.band_range_max = band_range_max
         self.band_range_min = band_range_min
-        self.band_avg_buffer_size = band_avg_buffer_size
+        self.band_buffer_size = band_buffer_size # 10 = 1sec
         self.power_values = []
         self.band_current_power = 0.0
         self.is_inhibit = is_inhibit
@@ -218,30 +202,22 @@ class Band_Context:
         self.name = f'{band_range_min}-{band_range_max}'
 
     def _add_band_power_value(self, value):
-        if self.band_current_power < 0.01 or self.band_current_power*self.signal_diviation_cut + 10 > value:
-            self.band_current_power = value
-            self.power_values.append(value)
-            if(len(self.power_values) > self.band_avg_buffer_size):
-                self.power_values.pop(0)
-        else:
-            print(f'{self.band_range_min}-{self.band_range_max} skip {value} max {self.band_current_power*self.signal_diviation_cut + 10}')
+        self.band_current_power = value
+        self.power_values.append(value)
+        if(len(self.power_values) > self.band_buffer_size):
+            self.power_values.pop(0)
 
     def add_band_power_value(self, psd):
         value = DataFilter.get_band_power(psd, self.band_range_min, self.band_range_max)
         self._add_band_power_value(value)
 
-    def get_avg_power(self):
-        if len(self.power_values) > 0:
-            return sum(self.power_values)/len(self.power_values)
-        return 0.0
-
     def get_signal(self):
-        avg_power = self.get_avg_power()
-        if avg_power > 0:
+        precentile_power = np.percentile(self.power_values, 85)
+        if precentile_power > 0:
             if self.is_inhibit:
-                return (avg_power - self.band_current_power) / avg_power
+                return (precentile_power - self.band_current_power) / precentile_power
             else:
-                return (self.band_current_power - avg_power) / avg_power
+                return (self.band_current_power - precentile_power) / precentile_power
         return 0.0
 
 # Mapping
@@ -283,7 +259,7 @@ def get_protocol2():
 
 # Data flow
 # raw data -> get_psd_welch for channel -> get_band_power for band within channel -> spike cut -> add to avg buffer and update band_current_power ->
-# get_signal() -> aggregate + and - separately across channels -> avg_(+) avg_(-) signals -> stimulus = avg_(+) > avg_(-) and aggregate(+)*0.9 > avg_(+) and |aggregate_(-)| > aggregate_(+)
+# get_signal() -> aggregate + and - separately across channels -> stimulus = aggregate(+) > |aggregate_(-)|
 if __name__ == "__main__":
     nf = Neural_Feedback('/home/romans/Downloads/y2mate.com - Negotiation Skills How to harness trust, empathy and the word No by Chris Voss_1080p.mp4')
     nf.config_protocol(get_protocol1())
