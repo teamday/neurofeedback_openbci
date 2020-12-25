@@ -48,12 +48,12 @@ class Neural_Feedback:
                     self.player_is_playing = False
                     break
                 signal = self.positive_signal
-                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
+                if old_signal != signal:# and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
                     signal_timestamp=time.time()
                     if signal:
-                        brightness_delta = 10
+                        brightness_delta = 30 if self.is_last_signal_delta_high else 10
                     else:
-                        brightness_delta = -5
+                        brightness_delta = -3
                     old_signal = signal
                 brightness += brightness_delta
                 if brightness > 254:
@@ -80,7 +80,7 @@ class Neural_Feedback:
             self.audio_start_time_sec = time.time()
             while self.player_is_playing:
                 signal = self.positive_signal
-                if old_signal != signal and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
+                if old_signal != signal:# and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
                     signal_timestamp=time.time()
                     if signal:
                         player.set_volume(1.0)
@@ -134,9 +134,9 @@ class Neural_Feedback:
             cv2_thread.start()
             audio_thread.start()
             self.player_is_playing = True
-            signal_freq_coeff = .3 # auto adjustable coefficient?
+            signal_freq_coeff = .5 # auto adjustable coefficient?
             high_signal_freq_coeff = .15
-            data_log_file = open(f'log-{time.time()}.csv', 'a')
+            data_log_file = open(f'log-ie-{time.time()}.csv', 'a')
             while self.player_is_playing:
                 time.sleep (.1)
                 bands_signals = self.on_next(eeg_channels, nfft)
@@ -237,11 +237,17 @@ class Band_Context:
 # current constraint band array should be same because count of positive/negative signals based on bands aggregation from channels
 def get_protocol1():
     result = []
-    result.append(Channel_Context(1, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(9, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(13, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(15, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(30.0, 55.0, False)]))
+    result.append(Channel_Context(11, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False)]))
+    result.append(Channel_Context(9, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False)]))
+    result.append(Channel_Context(13, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False)]))
+    result.append(Channel_Context(15, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False)]))
+    result.append(Channel_Context(5, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False)]))
     return result
+    #result.append(Channel_Context(1, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(40.0, 50.0, False)]))
+    #result.append(Channel_Context(9, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(40.0, 50.0, False)]))
+    #result.append(Channel_Context(13, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(40.0, 50.0, False)]))
+    #result.append(Channel_Context(15, [Band_Context(4.0, 7.0, True), Band_Context(8.0, 10.0, False), Band_Context(18.0, 22.0, True), Band_Context(40.0, 50.0, False)]))
+    #return result
 
 # test 2
 # right hemi ()
@@ -250,11 +256,11 @@ def get_protocol1():
 # 
 def get_protocol2():
     result = []
-    result.append(Channel_Context(4, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(6, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(8, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(14, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
-    result.append(Channel_Context(16, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True), Band_Context(30.0, 55.0, False)]))
+    result.append(Channel_Context(4, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True)]))
+    result.append(Channel_Context(6, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True)]))
+    result.append(Channel_Context(8, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True)]))
+    result.append(Channel_Context(14, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True)]))
+    result.append(Channel_Context(16, [Band_Context(4.0, 7.0, False), Band_Context(12.0, 18.0, False), Band_Context(18.0, 30.0, True)]))
     return result
 
 # Data flow
