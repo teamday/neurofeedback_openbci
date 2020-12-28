@@ -53,7 +53,7 @@ class Neural_Feedback:
                     if signal:
                         brightness_delta = 30 if self.is_last_signal_delta_high else 10
                     else:
-                        brightness_delta = -3
+                        brightness_delta = -2
                     old_signal = signal
                 brightness += brightness_delta
                 if brightness > 254:
@@ -80,12 +80,13 @@ class Neural_Feedback:
             self.audio_start_time_sec = time.time()
             while self.player_is_playing:
                 signal = self.positive_signal
-                if old_signal != signal:# and (self.is_last_signal_delta_high or time.time() - signal_timestamp > 2):
-                    signal_timestamp=time.time()
+                if old_signal != signal:
                     if signal:
                         player.set_volume(1.0)
-                    else:
+                        signal_timestamp=time.time()
+                    elif time.time() - signal_timestamp > 2:
                         player.set_volume(0.4)
+                        signal_timestamp=time.time()
                     old_signal = signal
                 time.sleep(0.1)
         except Exception as e: 
@@ -136,7 +137,7 @@ class Neural_Feedback:
             self.player_is_playing = True
             signal_freq_coeff = .5 # auto adjustable coefficient?
             high_signal_freq_coeff = .15
-            data_log_file = open(f'log-ie-{time.time()}.csv', 'a')
+            data_log_file = open(f'log-{time.time()}.csv', 'a')
             while self.player_is_playing:
                 time.sleep (.1)
                 bands_signals = self.on_next(eeg_channels, nfft)
@@ -267,7 +268,7 @@ def get_protocol2():
 # raw data -> get_psd_welch for channel -> get_band_power for band within channel -> spike cut -> add to avg buffer and update band_current_power ->
 # get_signal() -> aggregate + and - separately across channels -> stimulus = aggregate(+) > |aggregate_(-)|
 if __name__ == "__main__":
-    nf = Neural_Feedback('/home/romans/Downloads/y2mate.com - Negotiation Skills How to harness trust, empathy and the word No by Chris Voss_1080p.mp4')
+    nf = Neural_Feedback('/home/romans/Downloads/y2mate.com - Brain Rhythms Functional Brain Networks Mediated by Oscillatory Neural Coupling_1080p.mp4')
     nf.config_protocol(get_protocol1())
     nf.main()
     nf.dispose()
