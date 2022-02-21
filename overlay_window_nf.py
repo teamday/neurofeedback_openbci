@@ -9,9 +9,9 @@ import time
 import collections
 
 import pandas as pd
-import matplotlib
-matplotlib.use ('Agg')
-import matplotlib.pyplot as plt
+#import matplotlib
+#matplotlib.use ('Agg')
+#import matplotlib.pyplot as plt
 
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, LogLevels, BoardIds
 from brainflow.data_filter import DataFilter, FilterTypes, AggOperations, WindowFunctions, DetrendOperations
@@ -81,7 +81,10 @@ class Neural_Feedback:
             for component in self.channels[channel]:
                 print(f'{component.name}')
         for metric in self.metrics:
-            print(f'metric {metric.metric_type} {metric.component1.name} {metric.component2.name}')
+            if metric.component2 is None:
+                print(f'metric {metric.metric_type} {metric.component1.name}')
+            else:
+                print(f'metric {metric.metric_type} {metric.component1.name} {metric.component2.name}')
 
     def board_read_thread(self):
         try:
@@ -100,13 +103,13 @@ class Neural_Feedback:
             data_log_file.write(f'time,metrics_sum,signal,high_signal,{",".join(print_bands)}')
             metrics_hist = []
             while self.player_is_playing:
-                time.sleep (.3)
+                time.sleep (.1)
                 self.on_next(eeg_channels, nfft)
                 metrics_sum = 0.0
                 for metric in self.metrics:
                     metrics_sum += metric.get_metric()
                 metrics_hist.append(metrics_sum)
-                if len(metrics_hist) > 50:
+                if len(metrics_hist) > 150:
                     metrics_hist.pop(0)
 
                 avg_metrics_hist = sum(metrics_hist)/len(metrics_hist)
@@ -171,7 +174,7 @@ class Metric:
             if self.is_inhibit and c.precentile_power > 0:
                 return c.band_current_power / c.precentile_power
             elif not self.is_inhibit and c.band_current_power > 0:
-                return c.precentile_power / c.precentile_power
+                return c.precentile_power / c.band_current_power
         elif self.metric_type == 2 and self.component2.band_current_power > 0: # ratio metric
             return self.component1.band_current_power / self.component2.band_current_power
         elif self.metric_type == 3 and self.component1.precentile_power > 0 and self.component2.precentile_power > 0: # coherence metric    TODO figure out how to do coherence and phase check correctly
@@ -229,10 +232,24 @@ def get_protocol1():
 
     return (metric_components, metrics)
 
+def get_protocol2():
+    metric_components = {}
+    metric_components['ch9-8-12Hz'] = MetricComponent(9, 8.0, 12.0)
+    metric_components['ch11-8-12Hz'] = MetricComponent(11, 8.0, 12.0)
+    metric_components['ch12-8-12Hz'] = MetricComponent(12, 8.0, 12.0)
+    metric_components['ch10-8-12Hz'] = MetricComponent(10, 8.0, 12.0)
+
+    metrics = []
+    metrics.append(Metric(1, False, metric_components['ch9-8-12Hz'], None))
+    metrics.append(Metric(1, False, metric_components['ch11-8-12Hz'], None))
+    metrics.append(Metric(1, False, metric_components['ch12-8-12Hz'], None))
+    metrics.append(Metric(1, False, metric_components['ch10-8-12Hz'], None))
+
+    return (metric_components, metrics)
+
 
 if __name__ == "__main__":
-    #nf = Neural_Feedback('/home/romans/Downloads/y2mate.com - Intro to connectivity volume conduction and time vs trialbased connectivity_1080p.mp4')
     nf = Neural_Feedback()
-    nf.config_protocol(get_protocol1())
+    nf.config_protocol(get_protocol2())
     nf.main()
     nf.dispose()
